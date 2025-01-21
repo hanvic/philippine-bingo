@@ -1,0 +1,300 @@
+<!doctype html>
+<html>
+    <head>
+        <title>Bingo Host</title>
+        <style>
+            .container {
+                text-align: center;
+                margin-top: 50px;
+            }
+            .game-controls {
+                margin: 20px;
+            }
+            #playerList {
+                margin: 20px;
+            }
+            .player-board {
+                display: inline-block;
+                margin: 10px;
+                padding: 10px;
+                border: 1px solid #ccc;
+            }
+
+            .cell {
+                width: 40px;
+                height: 40px;
+                border: 1px solid black;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                margin: 2px;
+            }
+
+            .checked {
+                background-color: #ffeb3b;
+            }
+
+            .pattern-match {
+                background-color: #4caf50;
+            }
+
+            .pattern-board {
+                margin: 20px auto;
+                display: inline-block;
+            }
+
+            .pattern-cell {
+                width: 30px;
+                height: 30px;
+                border: 1px solid black;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                margin: 2px;
+            }
+
+            .pattern-marked {
+                background-color: #4caf50;
+            }
+
+            .winner-board {
+                border: 3px solid #4caf50 !important;
+                box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+                background-color: rgba(76, 175, 80, 0.1);
+            }
+
+            .winner-board h3 {
+                color: #4caf50;
+                font-weight: bold;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>빙고게임 해보자</h1>
+            <div id="setupControls">
+                <button onclick="createGame()">게임시작</button>
+            </div>
+            <div id="gameInfo" style="display: none">
+                <h2>게임방 코드: <span id="roomCode"></span></h2>
+                <p>입장 링크:</p>
+                <p><a id="gameLink" href="" target="_blank"></a></p>
+
+                <h2>당첨 패턴</h2>
+                <div id="winningPattern" class="pattern-board"></div>
+
+                <div id="gameStatus">
+                    <h3>현재 번호: <span id="currentNumber">-</span></h3>
+                    <h3>불린 번호: <span id="calledNumbers"></span></h3>
+                </div>
+
+                <div id="playerList">
+                    <h3>접속된 사용자:</h3>
+                    <ul id="players"></ul>
+                </div>
+                <div id="allBoards"></div>
+                <div class="game-controls">
+                    <button id="startButton" onclick="startGame()" disabled>
+                        빙고 시작
+                    </button>
+                </div>
+                <div id="winnerDisplay" style="display: none">
+                    <h2>승자: <span id="winnerName"></span></h2>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            let winningPattern = null;
+            let pollingInterval = null;
+            let numberUpdateInterval = null;
+            function createGame() {
+                fetch("/create_game", {
+                    method: "POST",
+                })
+                    .then((response) => response.json())
+                    .then((data) => {
+                        document.getElementById("roomCode").textContent =
+                            data.room_code;
+                        const gameUrl =
+                            window.location.origin + "/play/" + data.room_code;
+                        const linkElement = document.getElementById("gameLink");
+                        linkElement.href = gameUrl;
+                        linkElement.textContent = gameUrl;
+                        document.getElementById("gameInfo").style.display =
+                            "block";
+                        document.getElementById("setupControls").style.display =
+                            "none";
+                        // 승리 패턴 저장
+                        winningPattern = data.winning_pattern;
+                        renderWinningPattern(winningPattern);
+                        startPlayerPolling();
+                        startNumberUpdates();
+                    });
+            }
+
+            function startPlayerPolling() {
+                if (pollingInterval) {
+                    clearInterval(pollingInterval);
+                }
+                pollingInterval = setInterval(() => {
+                    fetch("/get_players")
+                        .then((response) => response.json())
+                        .then((data) => {
+                            const playersList =
+                                document.getElementById("players");
+                            playersList.innerHTML = "";
+                            data.players.forEach((player) => {
+                                const li = document.createElement("li");
+                                li.textContent = player;
+                                playersList.appendChild(li);
+                            });
+                            document.getElementById("startButton").disabled =
+                                data.players.length === 0;
+                            updateAllBoards();
+
+                            // 승자가 있으면 polling 중지
+                            if (data.winner) {
+                                clearInterval(pollingInterval);
+                                clearInterval(numberUpdateInterval);
+                                document.getElementById(
+                                    "winnerDisplay",
+                                ).style.display = "block";
+                                document.getElementById(
+                                    "winnerName",
+                                ).textContent = data.winner;
+                            }
+                        });
+                }, 1000);
+            }
+
+            function startGame() {
+                fetch("/start_game", {
+                    method: "POST",
+                })
+                    .then((response) => response.json())
+                    .then((data) => {
+                        if (data.success) {
+                            document.getElementById("startButton").disabled =
+                                true;
+                            // alert("Game started!");
+                        }
+                    });
+            }
+
+            function renderPlayerBoard(
+                playerName,
+                board,
+                checked,
+                isWinner = false,
+            ) {
+                const boardDiv = document.createElement("div");
+                boardDiv.className = "player-board";
+                if (isWinner) {
+                    boardDiv.classList.add("winner-board");
+                }
+                boardDiv.innerHTML = `<h3>${playerName}'s Board ${isWinner ? "(WINNER!)" : ""}</h3>`;
+
+                for (let i = 0; i < 5; i++) {
+                    const row = document.createElement("div");
+                    row.className = "board-row";
+                    for (let j = 0; j < 5; j++) {
+                        const cell = document.createElement("div");
+                        cell.className = "cell";
+                        if (checked[i][j]) {
+                            cell.classList.add("checked");
+                            if (winningPattern && winningPattern[i][j]) {
+                                cell.classList.add("pattern-match");
+                            }
+                        }
+                        cell.textContent = board[i][j];
+                        row.appendChild(cell);
+                    }
+                    boardDiv.appendChild(row);
+                }
+                return boardDiv;
+            }
+
+            function updateAllBoards() {
+                fetch("/get_all_boards")
+                    .then((response) => response.json())
+                    .then((data) => {
+                        const boardsContainer =
+                            document.getElementById("allBoards");
+                        boardsContainer.innerHTML = "";
+
+                        for (const [playerName, playerData] of Object.entries(
+                            data.players,
+                        )) {
+                            const boardElement = renderPlayerBoard(
+                                playerName,
+                                playerData.board,
+                                playerData.checked,
+                            );
+                            boardsContainer.appendChild(boardElement);
+                        }
+                    });
+            }
+
+            function renderWinningPattern(pattern) {
+                const patternDiv = document.getElementById("winningPattern");
+                patternDiv.innerHTML = "";
+
+                for (let i = 0; i < 5; i++) {
+                    const row = document.createElement("div");
+                    row.className = "board-row";
+                    for (let j = 0; j < 5; j++) {
+                        const cell = document.createElement("div");
+                        cell.className = "pattern-cell";
+                        if (pattern[i][j]) {
+                            cell.classList.add("pattern-marked");
+                        }
+                        row.appendChild(cell);
+                    }
+                    patternDiv.appendChild(row);
+                }
+            }
+            function startNumberUpdates() {
+                if (numberUpdateInterval) {
+                    clearInterval(numberUpdateInterval);
+                }
+                numberUpdateInterval = setInterval(() => {
+                    fetch("/update_numbers")
+                        .then((response) => response.json())
+                        .then((data) => {
+                            if (data.number) {
+                                document.getElementById(
+                                    "currentNumber",
+                                ).textContent = data.number;
+                            }
+                            if (data.called_numbers) {
+                                document.getElementById(
+                                    "calledNumbers",
+                                ).textContent = data.called_numbers.join(", ");
+                            }
+                            if (data.winner) {
+                                clearInterval(numberUpdateInterval);
+                                clearInterval(pollingInterval);
+                                document.getElementById(
+                                    "winnerDisplay",
+                                ).style.display = "block";
+                                document.getElementById(
+                                    "winnerName",
+                                ).textContent = data.winner;
+                            }
+                        });
+                }, 1000);
+            }
+
+            function updateGameState() {
+                fetch("/get_game_state")
+                    .then((response) => response.json())
+                    .then((data) => {
+                        if (data.winning_pattern) {
+                            winningPattern = data.winning_pattern;
+                        }
+                    });
+            }
+        </script>
+    </body>
+</html>

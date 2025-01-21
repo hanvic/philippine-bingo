@@ -1,0 +1,238 @@
+<!doctype html>
+<html>
+    <head>
+        <title>Bingo Player</title>
+        <style>
+            .container {
+                text-align: center;
+                margin-top: 20px;
+            }
+            .board {
+                display: inline-block;
+                margin: 20px;
+            }
+            .board-row {
+                display: flex;
+                justify-content: center;
+            }
+            .cell {
+                width: 50px;
+                height: 50px;
+                border: 1px solid black;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin: 2px;
+            }
+
+            .checked {
+                background-color: #ffeb3b;
+            }
+
+            .pattern-match {
+                background-color: #4caf50;
+            }
+
+            #playerInfo {
+                background-color: #f0f0f0;
+                padding: 10px;
+                margin-bottom: 20px;
+                border-radius: 5px;
+            }
+            .pattern-cell {
+                width: 30px;
+                height: 30px;
+                border: 1px solid black;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                margin: 2px;
+            }
+
+            .pattern-marked {
+                background-color: #4caf50;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div id="playerInfo" style="display: none">
+                <h2>이름: <span id="playerNameDisplay"></span></h2>
+            </div>
+
+            <div id="joinForm">
+                <h2>빙고게임</h2>
+                <p>게임방 코드: {{ room_code }}</p>
+                <button onclick="joinGame()">참여하기</button>
+            </div>
+
+            <div id="gameArea" style="display: none">
+                <h2>당첨 패턴</h2>
+                <div id="winningPattern"></div>
+
+                <h2>내 빙고판</h2>
+                <div id="bingoBoard"></div>
+
+                <div id="gameStatus">
+                    <h3>현재 번호: <span id="currentNumber">-</span></h3>
+                    <h3>불린 번호: <span id="calledNumbers"></span></h3>
+                </div>
+
+                <div id="winnerAnnouncement" style="display: none">
+                    <h2>승자: <span id="winnerName"></span></h2>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            let playerName;
+            let roomCode = "{{ room_code }}";
+            let gameActive = false;
+            let winningPattern = null;
+            let gamePollingInterval = null;
+
+            async function joinGame() {
+                playerName = prompt("Enter your name:");
+                if (!playerName) return;
+
+                const response = await fetch("/join_game", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        room_code: roomCode,
+                        player_name: playerName,
+                    }),
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    winningPattern = data.winning_pattern;
+                    document.getElementById("joinForm").style.display = "none";
+                    document.getElementById("gameArea").style.display = "block";
+                    document.getElementById("playerInfo").style.display =
+                        "block";
+                    document.getElementById("playerNameDisplay").textContent =
+                        playerName;
+                    renderBoard(data.board);
+                    renderPattern(data.winning_pattern);
+                    startGamePolling();
+                } else {
+                    alert(data.message);
+                }
+            }
+
+            function renderBoard(board) {
+                const boardDiv = document.getElementById("bingoBoard");
+                boardDiv.innerHTML = "";
+
+                for (let i = 0; i < 5; i++) {
+                    const row = document.createElement("div");
+                    row.className = "board-row";
+                    for (let j = 0; j < 5; j++) {
+                        const cell = document.createElement("div");
+                        cell.className = "cell";
+                        cell.textContent = board[i][j];
+                        cell.id = `cell-${i}-${j}`;
+                        row.appendChild(cell);
+                    }
+                    boardDiv.appendChild(row);
+                }
+            }
+
+            function renderPattern(pattern) {
+                const patternDiv = document.getElementById("winningPattern");
+                patternDiv.innerHTML = "";
+
+                for (let i = 0; i < 5; i++) {
+                    const row = document.createElement("div");
+                    for (let j = 0; j < 5; j++) {
+                        const cell = document.createElement("div");
+                        cell.className =
+                            "pattern-cell" +
+                            (pattern[i][j] ? " pattern-marked" : "");
+                        row.appendChild(cell);
+                    }
+                    patternDiv.appendChild(row);
+                }
+            }
+
+            function updateBoard(checked, pattern) {
+                for (let i = 0; i < 5; i++) {
+                    for (let j = 0; j < 5; j++) {
+                        const cell = document.getElementById(`cell-${i}-${j}`);
+                        if (checked[i][j]) {
+                            cell.classList.add("checked");
+                            if (pattern[i][j]) {
+                                cell.classList.add("pattern-match");
+                            }
+                        }
+                    }
+                }
+            }
+
+            async function startGamePolling() {
+                if (gamePollingInterval) {
+                    clearInterval(gamePollingInterval);
+                }
+                gamePollingInterval = setInterval(async () => {
+                    const response = await fetch(
+                        `/game_status?room_code=${roomCode}&player_name=${playerName}`,
+                    );
+                    const data = await response.json();
+
+                    if (data.success) {
+                        updateBoard(data.checked, winningPattern);
+                        if (data.is_active) {
+                            document.getElementById(
+                                "currentNumber",
+                            ).textContent = data.current_number || "-";
+                            document.getElementById(
+                                "calledNumbers",
+                            ).textContent = data.called_numbers.join(", ");
+                        }
+
+                        if (data.winner) {
+                            clearInterval(gamePollingInterval);
+                            const winnerAnnouncement =
+                                document.getElementById("winnerAnnouncement");
+                            document.getElementById("winnerName").textContent =
+                                data.winner;
+                            winnerAnnouncement.style.display = "block";
+
+                            // 자신이 승자인 경우 추가 스타일링
+                            if (data.winner === playerName) {
+                                document
+                                    .getElementById("bingoBoard")
+                                    .classList.add("winner-board");
+                            }
+                        }
+                    }
+                }, 1000);
+            }
+
+            async function startNumberUpdates() {
+                setInterval(async () => {
+                    if (gameActive) {
+                        const response = await fetch("/update_numbers");
+                        const data = await response.json();
+                        if (data.number) {
+                            document.getElementById(
+                                "currentNumber",
+                            ).textContent = data.number;
+                        }
+                        if (data.winner) {
+                            gameActive = false;
+                            const winnerAnnouncement =
+                                document.getElementById("winnerAnnouncement");
+                            document.getElementById("winnerName").textContent =
+                                data.winner;
+                            winnerAnnouncement.style.display = "block";
+                        }
+                    }
+                }, 1000);
+            }
+        </script>
+    </body>
+</html>
