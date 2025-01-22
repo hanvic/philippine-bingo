@@ -1,17 +1,18 @@
-[project]
-name = "p-bingo"
+[tool.poetry]
+name = "philippine-bingo"
 version = "0.1.0"
 description = ""
-authors = [
-    {name = "changpyo",email = "victoryhan@gmail.com"}
-]
+authors = ["changpyo-haezoom <cp.han@haezoom.com>"]
 readme = "README.md"
-requires-python = ">=3.12"
-dependencies = [
-    "flask (>=3.1.0,<4.0.0)"
-]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+flask = "^3.1.0"
 
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
+requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[virtualenvs]
+in-project = true
